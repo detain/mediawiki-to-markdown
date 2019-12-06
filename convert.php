@@ -99,7 +99,7 @@ while(list( , $node) = each($result)) {
     if ($add_meta) {    
         $frontmatter = "---\n";
         $frontmatter .= "title: $title\n";
-        $frontmatter .= "permalink: /$url/\n";
+        //$frontmatter .= "permalink: /$url/\n";
         $frontmatter .= "tags: ".implode(', ', $tags)."\n";
         $frontmatter .= "---\n\n";
     }
