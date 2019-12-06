@@ -1,6 +1,5 @@
-
 <?php
-
+error_reporting(E_ALL & ~E_DEPRECATED);
 $arguments = arguments($argv);
 
 require 'vendor/autoload.php';
@@ -19,7 +18,7 @@ if(!empty($arguments['output'])) {
         
     if(!file_exists($output_path)) {
         echo "Creating output directory $output_path" . PHP_EOL . PHP_EOL;
-        mkdir($output_path);
+        mkdir($output_path,0777,true);
     }
 
 } else {
@@ -29,11 +28,11 @@ if(!empty($arguments['output'])) {
 if(!empty($arguments['format'])) {
     $format = $arguments['format'];
 } else {
-    $format = 'markdown_github';
+    $format = 'gfm';
 }
 
 
-if(!empty($arguments['fm']) OR (empty($arguments['fm']) && $format == 'markdown_github')) {
+if(!empty($arguments['fm']) OR (empty($arguments['fm']) && $format == 'gfm')) {
     $add_meta = true;
 } else {
     $add_meta = false;
@@ -59,8 +58,11 @@ while(list( , $node) = each($result)) {
     
     $title = $node->xpath('title');
     $title = $title[0];
-    $url = str_replace(' ', '_', $title);
-
+    $url = str_replace(['/', ' ', '"', '\'', ':', '`', '\`', '!', '(', ')', '@', ',', ';', '$', '\\', '.', '+', '&', '='], ['-', '-', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''], $title);
+	if (substr($url, 0, 1) == '-') {
+		$url = substr($url , 1);
+	}
+	$url = strtolower($url);
     if($slash = strpos($url, '/')){
         $title = str_replace('/', ' ', $title);
         $directory = substr($url, 0, $slash);
@@ -70,17 +72,29 @@ while(list( , $node) = each($result)) {
         $directory = '';
         $filename = $url;
     }
+	if (preg_match('/^Category:/', $title) || preg_match('/^Category talk:/', $title)) {
+		echo "Skipping Page $title\n";
+		continue;
+	}
 
     $text = $node->xpath('revision/text');
     $text = $text[0];
     $text = html_entity_decode($text); // decode inline html
-    $text = preg_replace_callback('/\[\[(.+?)\]\]/', "new_link", $text); // adds leading slash to links, "absolute-path reference"
+	$tags = ['intwiki'];
+	if (preg_match_all('/\[\[Category:([^\]]+)\]\]/', $text, $matches)) {
+		foreach ($matches[1] as $match) {
+			$tags[] = $match;
+			$text = str_replace('[[Category:'.$match.']]', '', $text);
+		}
+	}
     
+    $text = preg_replace_callback('/\[\[(.+?)\]\]/', "new_link", $text); // adds leading slash to links, "absolute-path reference"
     // prepare to append page title frontmatter to text
     if ($add_meta) {    
         $frontmatter = "---\n";
         $frontmatter .= "title: $title\n";
         $frontmatter .= "permalink: /$url/\n";
+        $frontmatter .= "tags: ".implode(', ', $tags)."\n";
         $frontmatter .= "---\n\n";
     }
 
@@ -89,7 +103,12 @@ while(list( , $node) = each($result)) {
         "from"  => "mediawiki",
         "to"    => $format
     );
-    $text = $pandoc->runWith($text, $options);
+	try {
+	    $text = $pandoc->runWith($text, $options);
+	} catch (\Pandoc\PandocException $e) {
+		echo "Failed Converting in Pandoc With Error: ".$e->getMessage().PHP_EOL;
+		continue;
+	}
 
     $text = str_replace('\_', '_', $text);
 
@@ -104,13 +123,14 @@ while(list( , $node) = each($result)) {
     // create directory if necessary
     if(!empty($directory)) {
         if(!file_exists($directory)) {
-            mkdir($directory);
+            mkdir($directory,0777,true);
         }
 
         $directory = $directory . '/';
     }
 
     // create file
+	@mkdir(dirname(normalizePath($directory . $filename . '.md')), 0777, true);
     $file = fopen(normalizePath($directory . $filename . '.md'), 'w');
     fwrite($file, $text);
     fclose($file);
@@ -202,4 +222,3 @@ function normalizePath($path)
 }
 
 
-?>
